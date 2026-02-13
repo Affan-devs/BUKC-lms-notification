@@ -1,5 +1,8 @@
 name: LMS Assignment Checker
 
+permissions:
+  contents: write
+  
 on:
   schedule:
     - cron: '0 4,16 * * *'  # 9 AM, 9 PM Pakistan time
