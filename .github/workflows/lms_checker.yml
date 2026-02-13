@@ -2,8 +2,8 @@ name: LMS Assignment Checker
 
 on:
   schedule:
-    - cron: '0 9,21 * * *'  # 9 AM, 9 PM,  Pakistan time
-  
+    # Runs every 8 hours (8 AM, 2 PM, 8 PM Pakistan time)
+    - cron: '0 9,21 * * *'  
   # Allow manual trigger from GitHub UI
   workflow_dispatch:
 
@@ -33,18 +33,22 @@ jobs:
     
     - name: ✅ Verify Installation
       run: |
-        echo "Chrome: ${{ steps.setup-chrome.outputs.chrome-path }}"
-        ${{ steps.setup-chrome.outputs.chrome-path }} --version
-        echo "ChromeDriver: ${{ steps.setup-chrome.outputs.chromedriver-path }}"
-        ${{ steps.setup-chrome.outputs.chromedriver-path }} --version
+        echo "Chrome path: ${{ steps.setup-chrome.outputs.chrome-path }}"
+        "${{ steps.setup-chrome.outputs.chrome-path }}" --version
+        echo "ChromeDriver path: ${{ steps.setup-chrome.outputs.chromedriver-path }}"
+        "${{ steps.setup-chrome.outputs.chromedriver-path }}" --version
+        echo "Python version:"
         python --version
+        echo "Selenium installed:"
         pip list | grep selenium
     
     - name: 🔗 Setup ChromeDriver in PATH
       run: |
-        sudo ln -sf ${{ steps.setup-chrome.outputs.chromedriver-path }} /usr/local/bin/chromedriver
+        sudo ln -sf "${{ steps.setup-chrome.outputs.chromedriver-path }}" /usr/local/bin/chromedriver
         sudo chmod +x /usr/local/bin/chromedriver
+        echo "ChromeDriver location:"
         which chromedriver
+        echo "ChromeDriver version:"
         chromedriver --version
     
     - name: 📚 Check for existing CSV
@@ -67,7 +71,7 @@ jobs:
         COURSE_VALUES: ${{ secrets.COURSE_VALUES }}
       run: |
         echo "🔍 Starting LMS check..."
-        python lms_automation_github_v2.py
+        python lms_automation_github.py
     
     - name: 💾 Commit and Push CSV Changes
       run: |
