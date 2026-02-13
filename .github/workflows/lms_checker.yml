@@ -2,10 +2,9 @@ name: LMS Assignment Checker
 
 on:
   schedule:
-    # Change this line to your preferred schedule
     - cron: '0 9,21 * * *'  # 9 AM, 9 PM,  Pakistan time
   
-  # Manual trigger (keep this!)
+  # Allow manual trigger from GitHub UI
   workflow_dispatch:
 
 jobs:
@@ -13,33 +12,51 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name:  Checkout Repository
+    - name: 🔄 Checkout Repository
       uses: actions/checkout@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
     
-    - name:  Set up Python
+    - name: 🐍 Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     
-    - name:  Install Dependencies
+    - name: 🌐 Set up Chrome
+      uses: browser-actions/setup-chrome@latest
+      id: setup-chrome
+    
+    - name: 📦 Install Python Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install selenium
     
-    - name: 🌐 Setup Chrome and ChromeDriver
-      uses: browser-actions/setup-chrome@v1
-      with:
-        chrome-version: stable
-    
-    - name: ✅ Verify Chrome Installation
+    - name: ✅ Verify Installation
       run: |
-        google-chrome --version
-        which google-chrome
-        
+        echo "Chrome: ${{ steps.setup-chrome.outputs.chrome-path }}"
+        ${{ steps.setup-chrome.outputs.chrome-path }} --version
+        echo "ChromeDriver: ${{ steps.setup-chrome.outputs.chromedriver-path }}"
+        ${{ steps.setup-chrome.outputs.chromedriver-path }} --version
+        python --version
+        pip list | grep selenium
     
-    - name:  Run LMS Checker
+    - name: 🔗 Setup ChromeDriver in PATH
+      run: |
+        sudo ln -sf ${{ steps.setup-chrome.outputs.chromedriver-path }} /usr/local/bin/chromedriver
+        sudo chmod +x /usr/local/bin/chromedriver
+        which chromedriver
+        chromedriver --version
+    
+    - name: 📚 Check for existing CSV
+      run: |
+        if [ -f assignments_report.csv ]; then
+          echo "✅ Found existing CSV file"
+          echo "Current assignments count: $(wc -l < assignments_report.csv)"
+        else
+          echo "📄 No CSV file found, will create new one"
+        fi
+    
+    - name: 🚀 Run LMS Checker
       env:
         ENROLLMENT: ${{ secrets.ENROLLMENT }}
         PASSWORD: ${{ secrets.PASSWORD }}
@@ -49,10 +66,10 @@ jobs:
         EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
         COURSE_VALUES: ${{ secrets.COURSE_VALUES }}
       run: |
-        echo " Starting LMS check..."
-        python lms_automation_github.py
+        echo "🔍 Starting LMS check..."
+        python lms_automation_github_v2.py
     
-    - name:  Commit and Push CSV Changes
+    - name: 💾 Commit and Push CSV Changes
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
@@ -63,13 +80,13 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to CSV file"
           else
-            git commit -m " Update assignments - $(date +'%Y-%m-%d %H:%M:%S')"
+            git commit -m "📝 Update assignments - $(date +'%Y-%m-%d %H:%M:%S')"
             git push
-            echo " CSV updated and pushed to repository"
+            echo "✅ CSV updated and pushed to repository"
           fi
         fi
     
-    - name:  Upload CSV as Artifact
+    - name: 📊 Upload CSV as Artifact
       uses: actions/upload-artifact@v4
       if: always()
       with:
