@@ -1,2 +1,6 @@
+<<<<<<< HEAD
 selenium==4.17.2
 webdriver-manager==4.0.1
+=======
+selenium==4.17.2
+>>>>>>> 888c43662597d6ed9e3ec2e1d7f61dce6302a72d
