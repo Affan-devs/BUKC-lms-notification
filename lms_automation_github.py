@@ -15,20 +15,21 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 # ==================== USER CONFIGURATION ====================
 # LMS Credentials
-ENROLLMENT = "02-239252-073"
-PASSWORD = "$Maffanzubair16"
-INSTITUTE = "Karachi Campus"
+ENROLLMENT = "ENROLLMENT"
+PASSWORD = "PASSWORD"
+INSTITUTE = "INSTITUTE"
 
 # Email Configuration (Gmail)
-EMAIL_SENDER = "maffanzubair960@gmail.com"  # Your Gmail address
-EMAIL_PASSWORD = "uqqw bthk lyxo qlct"   # Gmail App Password (NOT your regular password!)
-EMAIL_RECEIVER = "maffanzubair960@gmail.com"  # Where to receive notifications
+EMAIL_SENDER = "EMAIL_SENDER"  # Your Gmail address
+EMAIL_PASSWORD = "EMAIL_PASSWORD"   # Gmail App Password (NOT your regular password!)
+EMAIL_RECEIVER = "EMAIL_RECEIVER"  # Where to receive notifications
 
 # Course IDs
-COURSE_VALUES = [
-    "MTQ3Nzgx", "MTQ3Nzgz", "MTQ3Nzg1", "MTQ3Nzg3", "MTQ3Nzkx", 
-    "MTQ3Nzkz", "MTQ3Nzk1", "MTQ3Nzk3", "MTQ3Nzk5"
-]
+course_values_str = os.environ.get('COURSE_VALUES', 
+    'MTQ3Nzgx,MTQ3Nzgz,MTQ3Nzg1,MTQ3Nzg3,MTQ3Nzkx,MTQ3Nzkz,MTQ3Nzk1,MTQ3Nzk3,MTQ3Nzk5')
+
+# Convert string to list
+COURSE_VALUES = [val.strip() for val in course_values_str.split(',')]
 
 # File Configuration
 CSV_FILE = 'assignments_report.csv'
