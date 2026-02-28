@@ -28,7 +28,7 @@ course_values_str = os.environ.get(
 COURSE_VALUES = [val.strip() for val in course_values_str.split(",")]
 
 CSV_FILE = "assignments_report.csv"
-DEADLINE_WARNING_HOURS = 24
+DEADLINE_WARNING_HOURS = 48
 # ==================== HELPER FUNCTIONS ====================
 
 def load_existing_assignments():
