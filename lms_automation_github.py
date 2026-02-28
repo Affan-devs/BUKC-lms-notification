@@ -13,28 +13,19 @@ from selenium.webdriver.support import expected_conditions as EC
 
 # ==================== USER CONFIGURATION ====================
 
+ENROLLMENT = os.environ.get("ENROLLMENT")
+PASSWORD = os.environ.get("PASSWORD")
+INSTITUTE = os.environ.get("INSTITUTE")
 
-# ENROLLMENT = os.environ.get("ENROLLMENT")
-# PASSWORD = os.environ.get("PASSWORD")
-# INSTITUTE = os.environ.get("INSTITUTE")
+EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER")
 
-# EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
-# EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
-# EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER")
-
-ENROLLMENT =  "02-239252-073" 
-PASSWORD =  "$Maffanzubair16" 
-INSTITUTE =  "Karachi Campus" 
-
-EMAIL_SENDER =  "maffanzubair960@gmail.com" 
-EMAIL_PASSWORD =  "bsoa bjjq xmga jssy" 
-EMAIL_RECEIVER =  "maffanzubair960@gmail.com" 
-
-COURSE_VALUES =  [ 
-  
+course_values_str = os.environ.get(
+    "COURSE_VALUES",
     "MTQ3Nzgx,MTQ3Nzgz,MTQ3Nzg1,MTQ3Nzg3,MTQ3Nzkx,MTQ3Nzkz,MTQ3Nzk1,MTQ3Nzk3,MTQ3Nzk5",
-]
-
+)
+COURSE_VALUES = [val.strip() for val in course_values_str.split(",")]
 
 CSV_FILE = "assignments_report.csv"
 DEADLINE_WARNING_HOURS = 24
@@ -177,7 +168,7 @@ def send_deadline_warning_email(upcoming_assignments):
         msg = MIMEMultipart("alternative")
         msg["From"] = EMAIL_SENDER
         msg["To"] = EMAIL_RECEIVER
-        msg["Subject"] = f" Deadline Alert: {len(upcoming_assignments)} Assignment(s) Due Within 24 Hours!"
+        msg["Subject"] = f" Deadline Alert: {len(upcoming_assignments)} this is testing email from now on you can have email for deadline hours of assigments mainly a day before  !"
 
         html_body = f"""
         <html>
