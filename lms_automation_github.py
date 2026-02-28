@@ -4,7 +4,7 @@ import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
+from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -13,26 +13,31 @@ from selenium.webdriver.support import expected_conditions as EC
 
 # ==================== USER CONFIGURATION ====================
 
-# LMS Credentials (Loaded from GitHub Secrets)
-ENROLLMENT = os.environ.get("ENROLLMENT")
-PASSWORD = os.environ.get("PASSWORD")
-INSTITUTE = os.environ.get("INSTITUTE")
 
-# Email Configuration
-EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
-EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
-EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER")
+# ENROLLMENT = os.environ.get("ENROLLMENT")
+# PASSWORD = os.environ.get("PASSWORD")
+# INSTITUTE = os.environ.get("INSTITUTE")
 
-# Course IDs from secret (comma separated)
-course_values_str = os.environ.get(
-    "COURSE_VALUES",
+# EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
+# EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+# EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER")
+
+ENROLLMENT =  "02-239252-073" 
+PASSWORD =  "$Maffanzubair16" 
+INSTITUTE =  "Karachi Campus" 
+
+EMAIL_SENDER =  "maffanzubair960@gmail.com" 
+EMAIL_PASSWORD =  "bsoa bjjq xmga jssy" 
+EMAIL_RECEIVER =  "maffanzubair960@gmail.com" 
+
+COURSE_VALUES =  [ 
+  
     "MTQ3Nzgx,MTQ3Nzgz,MTQ3Nzg1,MTQ3Nzg3,MTQ3Nzkx,MTQ3Nzkz,MTQ3Nzk1,MTQ3Nzk3,MTQ3Nzk5",
-)
-COURSE_VALUES = [val.strip() for val in course_values_str.split(",")]
+]
+
 
 CSV_FILE = "assignments_report.csv"
-
-
+DEADLINE_WARNING_HOURS = 24
 # ==================== HELPER FUNCTIONS ====================
 
 def load_existing_assignments():
@@ -71,6 +76,49 @@ def save_assignments_to_csv(all_assignments):
         print(f"Error saving CSV: {e}")
         return False
 
+
+def parse_deadline(deadline_str):
+    """
+    Parse deadline string in format: '15 March 2026-12:00 pm'
+    Returns a datetime object or None if parsing fails.
+    """
+    try:
+        # Normalize: replace '-' separator between date and time with a space
+        # "15 March 2026-12:00 pm" → "15 March 2026 12:00 pm"
+        normalized = deadline_str.strip().replace("-", " ", 1)
+        return datetime.strptime(normalized, "%d %B %Y %I:%M %p")
+    except ValueError as e:
+        print(f"  Could not parse deadline '{deadline_str}': {e}")
+        return None
+
+def check_upcoming_deadlines():
+    upcoming = []
+
+    if not os.path.exists(CSV_FILE):
+        return upcoming
+
+    now = datetime.now()
+    warning_cutoff = now + timedelta(hours=DEADLINE_WARNING_HOURS)
+
+    try:
+        with open(CSV_FILE, "r", encoding="utf-8") as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                deadline_dt = parse_deadline(row["Deadline"])
+
+                if deadline_dt is None:
+                    continue
+
+                if now < deadline_dt <= warning_cutoff:
+                    hours_left = (deadline_dt - now).total_seconds() / 3600
+                    row["Hours_Left"] = round(hours_left, 1)
+                    row["Deadline_DT"] = deadline_dt
+                    upcoming.append(row)
+
+    except Exception as e:
+        pass
+
+    return upcoming
 
 def send_email_notification(new_assignments):
     if not new_assignments:
@@ -117,9 +165,83 @@ def send_email_notification(new_assignments):
         print(f"Email error: {e}")
 
 
+def send_deadline_warning_email(upcoming_assignments):
+    """
+    Sends a deadline warning email for assignments due within the warning window.
+    """
+    if not upcoming_assignments:
+        print("No upcoming deadlines to warn about.")
+        return
+
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["From"] = EMAIL_SENDER
+        msg["To"] = EMAIL_RECEIVER
+        msg["Subject"] = f" Deadline Alert: {len(upcoming_assignments)} Assignment(s) Due Within 24 Hours!"
+
+        html_body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif;">
+            <h2 style="color: #c0392b;"> Deadline Warning</h2>
+            <p>The following <strong>{len(upcoming_assignments)}</strong> assignment(s) are due within the next <strong>24 hours</strong>:</p>
+        """
+
+        for assignment in upcoming_assignments:
+            hours_left = assignment.get("Hours_Left", "?")
+
+            if isinstance(hours_left, float) and hours_left <= 6:
+                border_color ="#e74c3c"   
+                urgency_label = f"🔴 Only {hours_left}h left!"
+            elif isinstance(hours_left, float) and hours_left <= 12:
+                border_color = "#e67e22"  
+                urgency_label = f"🟠 {hours_left}h left"
+            else:
+                border_color = "#f39c12"  
+                urgency_label = f"🟡 {hours_left}h left"
+
+            html_body += f"""
+            <div style="margin-bottom:15px; padding:12px; border-left:5px solid {border_color}; background:#fff8f8;">
+                <strong>Course:</strong> {assignment['Course']}<br>
+                <strong>Title:</strong> {assignment['Title']}<br>
+                <strong>Deadline:</strong> {assignment['Deadline']}<br>
+                <strong>Status:</strong> {urgency_label}
+            </div>
+            """
+
+        html_body += f"""
+            <hr>
+            <p style="color: #7f8c8d; font-size: 12px;">
+                This alert was generated on {datetime.now().strftime("%d %B %Y at %I:%M %p")}
+            </p>
+        </body>
+        </html>
+        """
+
+        msg.attach(MIMEText(html_body, "html"))
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.send_message(msg)
+
+        print(f"Deadline warning email sent for {len(upcoming_assignments)} assignment(s).")
+
+    except Exception as e:
+        print(f"Deadline warning email error: {e}")
+
+
 # ==================== MAIN SCRIPT ====================
 
 print("\n========== LMS Assignment Checker ==========\n")
+
+# ── STEP 1: Check deadlines from existing CSV before scraping ──
+upcoming_deadlines = check_upcoming_deadlines()
+if upcoming_deadlines:
+    send_deadline_warning_email(upcoming_deadlines)
+else:
+    print("No assignments due within 24 hours.")
+
+# ── STEP 2: Scrape LMS for new assignments ──
+print("\n--- Scraping LMS for new assignments ---\n")
 
 chrome_options = Options()
 chrome_options.add_argument("--headless=new")
@@ -161,6 +283,7 @@ try:
     assignments_link.click()
 
     wait.until(EC.presence_of_element_located((By.ID, "courseId")))
+
 
     all_assignments = []
     new_assignments = []
