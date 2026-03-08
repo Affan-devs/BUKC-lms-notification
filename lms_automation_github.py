@@ -28,7 +28,7 @@ course_values_str = os.environ.get(
 COURSE_VALUES = [val.strip() for val in course_values_str.split(",")]
 
 CSV_FILE = "assignments_report.csv"
-DEADLINE_WARNING_HOURS = 24
+DEADLINE_WARNING_HOURS = 12
 # ==================== HELPER FUNCTIONS ====================
 
 def load_existing_assignments():
@@ -74,8 +74,7 @@ def parse_deadline(deadline_str):
     Returns a datetime object or None if parsing fails.
     """
     try:
-        # Normalize: replace '-' separator between date and time with a space
-        # "15 March 2026-12:00 pm" → "15 March 2026 12:00 pm"
+        ttft
         normalized = deadline_str.strip().replace("-", " ", 1)
         return datetime.strptime(normalized, "%d %B %Y %I:%M %p")
     except ValueError as e:
@@ -168,22 +167,22 @@ def send_deadline_warning_email(upcoming_assignments):
         msg = MIMEMultipart("alternative")
         msg["From"] = EMAIL_SENDER
         msg["To"] = EMAIL_RECEIVER
-        msg["Subject"] = f" Deadline Alert: {len(upcoming_assignments)} this is testing email from now on you can have email for deadline hours of assigments mainly a day before  !"
+        msg["Subject"] = f" Deadline Alert: {len(upcoming_assignments)}!"
 
         html_body = f"""
         <html>
         <body style="font-family: Arial, sans-serif;">
             <h2 style="color: #c0392b;"> Deadline Warning</h2>
-            <p>The following <strong>{len(upcoming_assignments)}</strong> assignment(s) are due within the next <strong>24 hours</strong>:</p>
+            <p>The following <strong>{len(upcoming_assignments)}</strong> assignment(s) are due within the next <strong>12 hours</strong>:</p>
         """
 
         for assignment in upcoming_assignments:
             hours_left = assignment.get("Hours_Left", "?")
 
-            if isinstance(hours_left, float) and hours_left <= 6:
+            if isinstance(hours_left, float) and hours_left <= 4:
                 border_color ="#e74c3c"   
                 urgency_label = f"🔴 Only {hours_left}h left!"
-            elif isinstance(hours_left, float) and hours_left <= 12:
+            elif isinstance(hours_left, float) and hours_left <= 6:
                 border_color = "#e67e22"  
                 urgency_label = f"🟠 {hours_left}h left"
             else:
