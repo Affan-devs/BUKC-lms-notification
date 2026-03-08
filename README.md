@@ -15,6 +15,7 @@ Automatic email notifications for new assignments and upcoming deadlines.
 
 ### 1. Fork This Repository
 Click the **Fork** button at the top right of this page.
+And delete all the table data form assignments_report.csv
 
 ### 2. Get Gmail App Password
 1. Go to https://myaccount.google.com/apppasswords
