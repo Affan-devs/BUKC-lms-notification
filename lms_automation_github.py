@@ -23,12 +23,11 @@ EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER")
 
 course_values_str = os.environ.get(
     "COURSE_VALUES",
-    "MTQ3Nzgx,MTQ3Nzgz,MTQ3Nzg1,MTQ3Nzg3,MTQ3Nzkx,MTQ3Nzkz,MTQ3Nzk1,MTQ3Nzk3,MTQ3Nzk5",
 )
 COURSE_VALUES = [val.strip() for val in course_values_str.split(",")]
 
 CSV_FILE = "assignments_report.csv"
-DEADLINE_WARNING_HOURS = 12
+DEADLINE_WARNING_HOURS = 18
 # ==================== HELPER FUNCTIONS ====================
 
 def load_existing_assignments():
