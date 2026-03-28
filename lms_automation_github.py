@@ -73,7 +73,6 @@ def parse_deadline(deadline_str):
     Returns a datetime object or None if parsing fails.
     """
     try:
-        ttft
         normalized = deadline_str.strip().replace("-", " ", 1)
         return datetime.strptime(normalized, "%d %B %Y %I:%M %p")
     except ValueError as e:
@@ -172,7 +171,7 @@ def send_deadline_warning_email(upcoming_assignments):
         <html>
         <body style="font-family: Arial, sans-serif;">
             <h2 style="color: #c0392b;"> Deadline Warning</h2>
-            <p>The following <strong>{len(upcoming_assignments)}</strong> assignment(s) are due within the next <strong>12 hours</strong>:</p>
+            <p>The following <strong>{len(upcoming_assignments)}</strong> assignment(s) are due within the next <strong>18 hours</strong>:</p>
         """
 
         for assignment in upcoming_assignments:
