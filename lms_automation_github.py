@@ -1,7 +1,4 @@
-import time
-import csv
-import os
-import smtplib
+import time, csv, os, smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
@@ -11,350 +8,226 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 
-# ==================== USER CONFIGURATION ====================
+# ==================== CONFIG ====================
+ENROLLMENT = os.environ["ENROLLMENT"]
+PASSWORD = os.environ["PASSWORD"]
+INSTITUTE = os.environ["INSTITUTE"]
+EMAIL_SENDER = os.environ["EMAIL_SENDER"]
+EMAIL_PASSWORD = os.environ["EMAIL_PASSWORD"]
+EMAIL_RECEIVER = os.environ["EMAIL_RECEIVER"]
 
-ENROLLMENT = os.environ.get("ENROLLMENT")
-PASSWORD = os.environ.get("PASSWORD")
-INSTITUTE = os.environ.get("INSTITUTE")
-
-EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
-EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
-EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER")
-
-course_values_str = os.environ.get(
-    "COURSE_VALUES",
-)
-COURSE_VALUES = [val.strip() for val in course_values_str.split(",")]
+# Optional: comma-separated course NAMES (case-insensitive, partial match ok). Empty = all courses.
+COURSE_NAMES = [c.strip().lower() for c in os.environ.get("COURSE_NAMES", "").split(",") if c.strip()]
 
 CSV_FILE = "assignments_report.csv"
+KEYS = ["Course", "Title", "Deadline", "Date_Added", "Notified"]
 DEADLINE_WARNING_HOURS = 24
-# ==================== HELPER FUNCTIONS ====================
 
-def load_existing_assignments():
-    existing = set()
 
+# ==================== CSV HELPERS ====================
+def load_csv():
     if not os.path.exists(CSV_FILE):
-        print("No existing CSV found.")
-        return existing
+        return {}
+    data = {}
+    with open(CSV_FILE, "r", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            row.setdefault("Notified", "no")
+            data[f"{row['Course']}|{row['Title']}|{row['Deadline']}"] = row
+    return data
 
+
+def save_csv(data):
+    with open(CSV_FILE, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=KEYS, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(data.values())
+    print(f"Saved {len(data)} assignments.")
+
+
+def parse_deadline(s):
     try:
-        with open(CSV_FILE, "r", encoding="utf-8") as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                identifier = f"{row['Course']}|{row['Title']}|{row['Deadline']}"
-                existing.add(identifier)
-
-        print(f"Loaded {len(existing)} existing assignments.")
-    except Exception as e:
-        print(f"Error reading CSV: {e}")
-
-    return existing
-
-
-def save_assignments_to_csv(all_assignments):
-    keys = ["Course", "Title", "Deadline", "Date_Added"]
-
-    try:
-        with open(CSV_FILE, "w", newline="", encoding="utf-8") as output_file:
-            writer = csv.DictWriter(output_file, fieldnames=keys)
-            writer.writeheader()
-            writer.writerows(all_assignments)
-
-        print(f"Saved {len(all_assignments)} assignments.")
-        return True
-    except Exception as e:
-        print(f"Error saving CSV: {e}")
-        return False
-
-
-def parse_deadline(deadline_str):
-    """
-    Parse deadline string in format: '15 March 2026-12:00 pm'
-    Returns a datetime object or None if parsing fails.
-    """
-    try:
-        normalized = deadline_str.strip().replace("-", " ", 1)
-        return datetime.strptime(normalized, "%d %B %Y %I:%M %p")
-    except ValueError as e:
-        print(f"  Could not parse deadline '{deadline_str}': {e}")
+        return datetime.strptime(s.strip().replace("-", " ", 1), "%d %B %Y %I:%M %p")
+    except ValueError:
         return None
 
-def check_upcoming_deadlines():
-    upcoming = []
 
-    if not os.path.exists(CSV_FILE):
-        return upcoming
+# ==================== EMAIL ====================
+def send_email(subject, html):
+    msg = MIMEMultipart("alternative")
+    msg["From"], msg["To"], msg["Subject"] = EMAIL_SENDER, EMAIL_RECEIVER, subject
+    msg.attach(MIMEText(html, "html"))
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+        s.login(EMAIL_SENDER, EMAIL_PASSWORD)
+        s.send_message(msg)
 
+
+def notify_new(items):
+    body = f"<h2>New Assignments</h2><p><b>{len(items)}</b> new assignment(s).</p>"
+    for a in items:
+        body += (f"<div style='margin-bottom:12px;padding:10px;border:1px solid #ddd'>"
+                 f"<b>Course:</b> {a['Course']}<br><b>Title:</b> {a['Title']}<br>"
+                 f"<b>Deadline:</b> {a['Deadline']}</div>")
+    send_email(f"{len(items)} New LMS Assignment(s)", body)
+    print("New-assignment email sent.")
+
+
+def notify_deadlines(items):
+    body = (f"<h2 style='color:#c0392b'>Deadline Warning</h2>"
+            f"<p>Due within the next <b>{DEADLINE_WARNING_HOURS} hours</b>:</p>")
+    for a, hrs in items:
+        color = "#e74c3c" if hrs <= 4 else "#e67e22" if hrs <= 8 else "#f39c12"
+        body += (f"<div style='margin-bottom:12px;padding:10px;border-left:5px solid {color};background:#fff8f8'>"
+                 f"<b>Course:</b> {a['Course']}<br><b>Title:</b> {a['Title']}<br>"
+                 f"<b>Deadline:</b> {a['Deadline']}<br><b>Left:</b> {hrs}h</div>")
+    send_email(f"Deadline Alert: {len(items)} due soon", body)
+    print("Deadline email sent.")
+
+
+def check_deadlines(data):
+    """Send a one-time warning per assignment. Mutates 'Notified' flag."""
     now = datetime.now()
-    warning_cutoff = now + timedelta(hours=DEADLINE_WARNING_HOURS)
+    cutoff = now + timedelta(hours=DEADLINE_WARNING_HOURS)
+    due = []
+    for row in data.values():
+        dt = parse_deadline(row["Deadline"])
+        if dt and now < dt <= cutoff and row.get("Notified") != "deadline":
+            due.append((row, round((dt - now).total_seconds() / 3600, 1)))
+    if due:
+        try:
+            notify_deadlines(due)
+            for row, _ in due:
+                row["Notified"] = "deadline"
+        except Exception as e:
+            print(f"Deadline email error: {e}")
+    else:
+        print("No new deadline warnings.")
 
+
+# ==================== SCRAPER HELPERS ====================
+def get_course_list(driver, wait):
+    """Return [(index, name)] from the dropdown. Values are random, so we ignore them."""
+    sel = Select(wait.until(EC.presence_of_element_located((By.ID, "courseId"))))
+    courses = []
+    for i, opt in enumerate(sel.options):
+        if not (opt.get_attribute("value") or "").strip():
+            continue  # placeholder "Select Course"
+        name = opt.text.strip()
+        if COURSE_NAMES and not any(c in name.lower() for c in COURSE_NAMES):
+            continue
+        courses.append((i, name))
+    return courses
+
+
+def scrape_course(driver, wait, index):
+    # Re-find the select every time: the page refreshes after each change
+    old_tbody = None
     try:
-        with open(CSV_FILE, "r", encoding="utf-8") as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                deadline_dt = parse_deadline(row["Deadline"])
-
-                if deadline_dt is None:
-                    continue
-
-                if now < deadline_dt <= warning_cutoff:
-                    hours_left = (deadline_dt - now).total_seconds() / 3600
-                    row["Hours_Left"] = round(hours_left, 1)
-                    row["Deadline_DT"] = deadline_dt
-                    upcoming.append(row)
-
-    except Exception as e:
+        old_tbody = driver.find_element(By.CSS_SELECTOR, "table.table.table-hover tbody")
+    except Exception:
         pass
 
-    return upcoming
+    Select(wait.until(EC.presence_of_element_located((By.ID, "courseId")))).select_by_index(index)
 
-def send_email_notification(new_assignments):
-    if not new_assignments:
-        print("No new assignments to notify.")
-        return
+    if old_tbody is not None:
+        try:
+            WebDriverWait(driver, 10).until(EC.staleness_of(old_tbody))
+        except Exception:
+            time.sleep(3)  # table updated in place (AJAX), fall back to a short wait
+    else:
+        time.sleep(3)
 
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["From"] = EMAIL_SENDER
-        msg["To"] = EMAIL_RECEIVER
-        msg["Subject"] = f"{len(new_assignments)} New LMS Assignment(s)"
+    tbody = wait.until(EC.presence_of_element_located(
+        (By.CSS_SELECTOR, "table.table.table-hover tbody")))
+    if "No assignment uploaded yet" in tbody.text:
+        return []
 
-        html_body = f"""
-        <html>
-        <body>
-            <h2>New Assignments Detected</h2>
-            <p>You have <strong>{len(new_assignments)}</strong> new assignment(s).</p>
-        """
-
-        for assignment in new_assignments:
-            html_body += f"""
-            <div style="margin-bottom:15px;padding:10px;border:1px solid #ddd;">
-                <strong>Course:</strong> {assignment['Course']}<br>
-                <strong>Title:</strong> {assignment['Title']}<br>
-                <strong>Deadline:</strong> {assignment['Deadline']}
-            </div>
-            """
-
-        html_body += f"""
-            <p>Checked on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
-        </body>
-        </html>
-        """
-
-        msg.attach(MIMEText(html_body, "html"))
-
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-            server.send_message(msg)
-
-        print("Email notification sent successfully.")
-
-    except Exception as e:
-        print(f"Email error: {e}")
+    results = []
+    for row in tbody.find_elements(By.TAG_NAME, "tr"):
+        tds = row.find_elements(By.TAG_NAME, "td")
+        if not tds:
+            continue
+        title = tds[0].text.strip()
+        try:
+            deadline = row.find_element(By.CSS_SELECTOR, "small.label.label-info").text.strip()
+        except Exception:
+            deadline = "Not Found"
+        results.append((title, deadline))
+    return results
 
 
-def send_deadline_warning_email(upcoming_assignments):
-    """
-    Sends a deadline warning email for assignments due within the warning window.
-    """
-    if not upcoming_assignments:
-        print("No upcoming deadlines to warn about.")
-        return
+# ==================== MAIN ====================
+print("\n===== LMS Assignment Checker =====\n")
 
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["From"] = EMAIL_SENDER
-        msg["To"] = EMAIL_RECEIVER
-        msg["Subject"] = f" Deadline Alert: {len(upcoming_assignments)}!"
+data = load_csv()
+print(f"Loaded {len(data)} existing assignments.")
 
-        html_body = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif;">
-            <h2 style="color: #c0392b;"> Deadline Warning</h2>
-            <p>The following <strong>{len(upcoming_assignments)}</strong> assignment(s) are due within the next <strong>18 hours</strong>:</p>
-        """
+# STEP 1: deadline warnings from existing data
+check_deadlines(data)
+if data:
+    save_csv(data)
 
-        for assignment in upcoming_assignments:
-            hours_left = assignment.get("Hours_Left", "?")
-
-            if isinstance(hours_left, float) and hours_left <= 4:
-                border_color ="#e74c3c"   
-                urgency_label = f"🔴 Only {hours_left}h left!"
-            elif isinstance(hours_left, float) and hours_left <= 6:
-                border_color = "#e67e22"  
-                urgency_label = f"🟠 {hours_left}h left"
-            else:
-                border_color = "#f39c12"  
-                urgency_label = f"🟡 {hours_left}h left"
-
-            html_body += f"""
-            <div style="margin-bottom:15px; padding:12px; border-left:5px solid {border_color}; background:#fff8f8;">
-                <strong>Course:</strong> {assignment['Course']}<br>
-                <strong>Title:</strong> {assignment['Title']}<br>
-                <strong>Deadline:</strong> {assignment['Deadline']}<br>
-                <strong>Status:</strong> {urgency_label}
-            </div>
-            """
-
-        html_body += f"""
-            <hr>
-            <p style="color: #7f8c8d; font-size: 12px;">
-                This alert was generated on {datetime.now().strftime("%d %B %Y at %I:%M %p")}
-            </p>
-        </body>
-        </html>
-        """
-
-        msg.attach(MIMEText(html_body, "html"))
-
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-            server.send_message(msg)
-
-        print(f"Deadline warning email sent for {len(upcoming_assignments)} assignment(s).")
-
-    except Exception as e:
-        print(f"Deadline warning email error: {e}")
-
-
-# ==================== MAIN SCRIPT ====================
-
-print("\n========== LMS Assignment Checker ==========\n")
-
-# ── STEP 1: Check deadlines from existing CSV before scraping ──
-upcoming_deadlines = check_upcoming_deadlines()
-if upcoming_deadlines:
-    send_deadline_warning_email(upcoming_deadlines)
-else:
-    print("No assignments due within 24 hours.")
-
-# ── STEP 2: Scrape LMS for new assignments ──
-print("\n--- Scraping LMS for new assignments ---\n")
-
-chrome_options = Options()
-chrome_options.add_argument("--headless=new")
-chrome_options.add_argument("--no-sandbox")
-chrome_options.add_argument("--disable-dev-shm-usage")
-chrome_options.add_argument("--disable-gpu")
-chrome_options.add_argument("--window-size=1920,1080")
-
-driver = webdriver.Chrome(options=chrome_options)
+# STEP 2: scrape
+opts = Options()
+for a in ("--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
+          "--disable-gpu", "--window-size=1920,1080"):
+    opts.add_argument(a)
+driver = webdriver.Chrome(options=opts)
 wait = WebDriverWait(driver, 20)
 
 try:
-    existing_assignments = load_existing_assignments()
-
-    print("Logging into CMS...")
     driver.get("https://cms.bahria.edu.pk/Logins/Student/Login.aspx")
-
     wait.until(EC.presence_of_element_located((By.ID, "BodyPH_tbEnrollment")))
-
     driver.find_element(By.ID, "BodyPH_tbEnrollment").send_keys(ENROLLMENT)
     driver.find_element(By.ID, "BodyPH_tbPassword").send_keys(PASSWORD)
-
-    institute_dropdown = Select(driver.find_element(By.ID, "BodyPH_ddlInstituteID"))
-    institute_dropdown.select_by_visible_text(INSTITUTE)
-
+    Select(driver.find_element(By.ID, "BodyPH_ddlInstituteID")).select_by_visible_text(INSTITUTE)
     driver.find_element(By.ID, "BodyPH_btnLogin").click()
-    print("CMS login successful.")
 
-    go_to_lms = wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Go To LMS")))
-    go_to_lms.click()
-
+    wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Go To LMS"))).click()
+    wait.until(lambda d: len(d.window_handles) > 1)
     driver.switch_to.window(driver.window_handles[1])
     wait.until(EC.url_contains("lms.bahria.edu.pk"))
-    print("LMS opened.")
 
-    assignments_link = wait.until(
-        EC.element_to_be_clickable((By.XPATH, "//a[@href='Assignments.php']"))
-    )
-    assignments_link.click()
-
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//a[@href='Assignments.php']"))).click()
     wait.until(EC.presence_of_element_located((By.ID, "courseId")))
 
+    courses = get_course_list(driver, wait)
+    print(f"Courses found: {[n for _, n in courses]}")
 
-    all_assignments = []
-    new_assignments = []
-    current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    new_items = []
 
-    for val in COURSE_VALUES:
-        print(f"Checking course ID: {val}")
-
-        dropdown_elem = wait.until(
-            EC.presence_of_element_located((By.ID, "courseId"))
-        )
-        course_select = Select(dropdown_elem)
-
+    for index, name in courses:
+        print(f"Checking: {name}")
         try:
-            option_element = dropdown_elem.find_element(
-                By.XPATH, f"//option[@value='{val}']"
-            )
-        except:
-            print("Course not found in dropdown.")
+            items = scrape_course(driver, wait, index)
+        except Exception as e:
+            print(f"  Failed ({e}); keeping old data for this course.")
             continue
 
-        course_name = option_element.text.strip()
-        course_select.select_by_value(val)
+        for title, deadline in items:
+            key = f"{name}|{title}|{deadline}"
+            if key not in data:
+                row = {"Course": name, "Title": title, "Deadline": deadline,
+                       "Date_Added": now_str, "Notified": "no"}
+                data[key] = row
+                new_items.append(row)
+                print(f"  NEW: {title}")
 
-        time.sleep(3)
+    print(f"New assignments: {len(new_items)}")
 
-        tbody = wait.until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, "table.table.table-hover tbody")
-            )
-        )
+    if new_items:
+        try:
+            notify_new(new_items)
+        except Exception as e:
+            print(f"Email error: {e}")
 
-        if "No assignment uploaded yet" in tbody.text:
-            print("No assignments.")
-            continue
+    # Catch assignments that are new AND already due soon
+    check_deadlines(data)
+    save_csv(data)
 
-        rows = tbody.find_elements(By.TAG_NAME, "tr")
-
-        for row in rows:
-            tds = row.find_elements(By.TAG_NAME, "td")
-            if not tds:
-                continue
-
-            title = tds[0].text.strip()
-
-            try:
-                deadline = row.find_element(
-                    By.CSS_SELECTOR, "small.label.label-info"
-                ).text.strip()
-            except:
-                deadline = "Not Found"
-
-            identifier = f"{course_name}|{title}|{deadline}"
-
-            assignment = {
-                "Course": course_name,
-                "Title": title,
-                "Deadline": deadline,
-                "Date_Added": current_date,
-            }
-
-            all_assignments.append(assignment)
-
-            if identifier not in existing_assignments:
-                new_assignments.append(assignment)
-                print(f"NEW: {title}")
-
-    print(f"\nTotal found: {len(all_assignments)}")
-    print(f"New: {len(new_assignments)}")
-
-    if save_assignments_to_csv(all_assignments):
-        print("CSV updated.")
-
-    if new_assignments:
-        send_email_notification(new_assignments)
-    else:
-        print("No new assignments detected.")
-
-except Exception as e:
+except Exception:
     import traceback
-    print("Fatal Error:")
     traceback.print_exc()
-
 finally:
     driver.quit()
     print("Browser closed.")
